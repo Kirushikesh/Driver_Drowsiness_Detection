@@ -1,4 +1,4 @@
-# Driverd Drowsiness Detection
+# Driver Drowsiness Detection
 ## Table of Content
 - [Demo](#demo)
 - [Screen Shots](#screen-shots)
