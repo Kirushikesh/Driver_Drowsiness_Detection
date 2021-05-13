@@ -31,6 +31,8 @@ pip install -r requirements.txt
 - Move the trained model inside the model directory.
 - Run ```detection.py``` which gets the live feed from your camera. The program analyse the feed frame by frame here here is where the cascade model comes into play they used to detect the human eyes. Followed by the CNN model to classify the eyes returned by the Cascades. When the eyes are closed till a particular time the alarm starts ringing.
 ## Directory Tree
+![image](https://user-images.githubusercontent.com/49152921/118118893-2dbe0580-b40b-11eb-9889-8f397a49f49b.png)
+
 ## Technologies and Tools
 - Python
 - Tensorflow
