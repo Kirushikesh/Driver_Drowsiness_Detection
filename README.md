@@ -1,7 +1,6 @@
 # Driver Drowsiness Detection
 ## Table of Content
 - [Demo](#demo)
-- [Screen Shots](#screen-shots)
 - [Overview](#overview)
 - [Motivation](#motivation)
 - [Technical Aspect](#technical-aspect)
@@ -12,7 +11,10 @@
 - [To Do](#to-do)
 - [Contact](#contact)
 ## Demo
-## Screen Shots
+
+https://user-images.githubusercontent.com/49152921/118120917-4a0f7180-b40e-11eb-95c9-73fb23c00688.mp4
+
+
 ## Overview
 Driver Drowsiness Detection using live video feed from the camera. This project was developed to prevent accidents caused by the drivers due to drowsiness, it will alert the driver when feeling sleepy by ringing an alarm. The CNN Model will be used to identify the whether the human eyes are closed or open with 98% Accuracy. The Haar Cascade Classifiers are used for face, left eye and right eye detection. The dataset used for this project is [MRL Eye Dataset](http://mrl.cs.vsb.cz/eyedataset) which contains 80k images encapsulating different features in it.
 ## Motivation
