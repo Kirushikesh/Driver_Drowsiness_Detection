@@ -1,110 +1,185 @@
-import cv2
-import os
-import tensorflow as tf
-from keras.models import load_model
 import numpy as np
-from pygame import mixer
-import time
+import cv2
+from scipy.spatial import distance as dist
+import imutils
+import os 
 
+MIN_CONF = 0.3
+NMS_THRESH = 0.3
+SERIOUS_DISTANCE = 50
+ALERT_DISTANCE = 80
 
-mixer.init()
-sound = mixer.Sound('alarm.wav')
+def detect_people(frame, net, ln):
+	
+	(H, W) = frame.shape[:2]
+	results = []
 
-face = cv2.CascadeClassifier('haar cascade files/haarcascade_frontalface_alt.xml')
-leye = cv2.CascadeClassifier('haar cascade files/haarcascade_lefteye_2splits.xml')
-reye = cv2.CascadeClassifier('haar cascade files/haarcascade_righteye_2splits.xml')
+  	# construct a blob from the input frame 
+	# input dimension is (393, 700, 3) and output dimension is (1, 3, 416, 416) 
+	# cv2.dnn.blobFromImage returna 4-dimensional Mat with NCHW dimensions order.
+	blob = cv2.dnn.blobFromImage(frame, 1 / 255.0, (416, 416),swapRB=True, crop=False)
+	
+	#sets the new input for the network
+	net.setInput(blob)
 
+	# Runs forward pass to compute output of layer with name outputName here ln.
+	# Returns list of 3 outputs each are numpy.ndarrays and the each output shape is
+	# 507 x 85 ---> 13 x 13 x 3 x 85
+	# 2028 x 85 ---> 26 x 26 x 3 x 85
+	# 8112 x 85 ---> 52 x 52 x 3 x 85
+	layerOutputs = net.forward(ln)
 
+	boxes = []
+	centroids = []
+	confidences = []
 
-lbl=['Close','Open']
+  	# loop over each of the layer outputs (3)
+	for output in layerOutputs:
+	
+    # loop over each of the detections output shape will be 507 or 2028 or 8112,
+	# detection shape will be 85 
+		for detection in output:
+      		
+			# In the detection first 4 are box coordinates and last 80 are class probabilities
+			scores = detection[5:]
+			classID = np.argmax(scores)
+			confidence = scores[classID]
 
-model = load_model('models/model.h5')
-path = os.getcwd()
-cap = cv2.VideoCapture(0)
-font = cv2.FONT_HERSHEY_COMPLEX_SMALL
-count=0
-score=0
-thicc=2
-rpred=[1,0]
-lpred=[1,0]
-val1=1
-val2=1
-while(True):
-    ret, frame = cap.read()
-    height,width = frame.shape[:2] 
+			box = detection[0:4] * np.array([W, H, W, H])
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    
-    faces = face.detectMultiScale(gray,minNeighbors=5,scaleFactor=1.1,minSize=(25,25))
-    left_eye = leye.detectMultiScale(gray)
-    right_eye =  reye.detectMultiScale(gray)
+      		# filter detections by ensuring that the object detected was a person and
+			# that the minimum confidence is met
+			if classID == 0 and confidence > MIN_CONF:
+				
+				# scale the bounding box coordinates back relative to
+				# the size of the image
+				box = detection[0:4] * np.array([W, H, W, H])
+				(centerX, centerY, width, height) = box.astype("int")
 
-    cv2.rectangle(frame, (0,height-50) , (200,height) , (0,0,0) , thickness=cv2.FILLED )
+				# use the center (x, y)-coordinates to derive the top left corner of bounding box
+				x = int(centerX - (width / 2))
+				y = int(centerY - (height / 2))
 
-    for (x,y,w,h) in faces:
-        cv2.rectangle(frame, (x,y) , (x+w,y+h) , (100,100,100) , 1 )
+				# update our list of bounding box coordinates, centroids, and confidences
+				boxes.append([x, y, int(width), int(height)])
+				centroids.append((centerX, centerY))
+				confidences.append(float(confidence))
 
-    for (x,y,w,h) in right_eye:
-        r_eye=frame[y:y+h,x:x+w]
-        count=count+1
-        r_eye = cv2.cvtColor(r_eye,cv2.COLOR_BGR2GRAY)
-        r_eye = cv2.resize(r_eye,(52,52))
-        r_eye= r_eye/255
-        r_eye=  r_eye.reshape(52,52,1)
-        rpred = model.predict(np.expand_dims(r_eye,axis=0))
-        if(rpred[0][0]>rpred[0][1]):
-            val1=0
-            lbl='Closed'
-        else:
-            val1=1
-            lbl='Open'
-        break
+  	# apply non-maxima suppression to suppress weak, overlapping bounding boxes
+	idxs = cv2.dnn.NMSBoxes(boxes, confidences, MIN_CONF, NMS_THRESH)
+	
+  	# ensure at least one detection exists
+	if len(idxs) > 0:
 
-    for (x,y,w,h) in left_eye:
-        l_eye=frame[y:y+h,x:x+w]
-        count=count+1
-        l_eye = cv2.cvtColor(l_eye,cv2.COLOR_BGR2GRAY)  
-        l_eye = cv2.resize(l_eye,(52,52))
-        l_eye= l_eye/255
-        l_eye=l_eye.reshape(52,52,1)
-        lpred = model.predict(np.expand_dims(l_eye,axis=0))
-        if(lpred[0][0]>lpred[0][1]):
-            val2=0
-            lbl='Closed'
-        else:
-            val2=1
-            lbl='Open'
-        break
+		# idxs.flatten() returns the index of bounding boxes after non max supression.
+		for i in idxs.flatten():
 
-    if(val1==0 and val2==0):
-        score=score+1
-        cv2.putText(frame,"Closed",(10,height-20), font, 1,(255,255,255),1,cv2.LINE_AA)
-    else:
-        score=score-1
-        cv2.putText(frame,"Open",(10,height-20), font, 1,(255,255,255),1,cv2.LINE_AA)
-    
+			# extract the bounding box coordinates
+			(x, y) = (boxes[i][0], boxes[i][1])
+			(w, h) = (boxes[i][2], boxes[i][3])
+			
+      		# update our results list to consist of the person
+			# prediction probability, bounding box coordinates, and the centroid
+			r = (confidences[i], (x, y, x + w, y + h), centroids[i])
+			results.append(r)
+
+	# return the list of results
+	return results
+
+LABELS = open("yolov3_data/coco_classes.txt").read().strip().split("\n")
+
+weightsPath =  "yolov3_data/yolov3.weights"
+configPath = "yolov3_data/yolov3.cfg"
+
+#Reads a network model stored in Darknet model file.
+net = cv2.dnn.readNetFromDarknet(configPath, weightsPath)
+
+# determine only the *output* layer names that we need from YOLO
+# Unlike YOLO and YOLO2, which predict the output at the last layer, 
+# YOLOv3 predicts boxes at 3 different scales as illustrated in the below image.
+ln = net.getUnconnectedOutLayersNames()
+
+vs = cv2.VideoCapture("demovideo/Test_video_1.mp4")
+
+while True:
+
+	(grabbed, frame) = vs.read()
+	if not grabbed:
+		break
+	
+	frame = imutils.resize(frame, width=700)
+	results = detect_people(frame, net, ln)
+	
+	# initialize the set of indexes that violate the minimum social
+	# distance
+	alert = set()
+	serious = set()
+	a_lines=list()
+	s_lines=list()
+
+	# ensure there are *at least* two people detections (required in
+	# order to compute our pairwise distance maps)
+	if len(results) >= 2:
         
-    if(score<0):
-        score=0   
-    cv2.putText(frame,'Score:'+str(score),(100,height-20), font, 1,(255,255,255),1,cv2.LINE_AA)
-    if(score>15):
-        #person is feeling sleepy so we beep the alarm
-        cv2.imwrite(os.path.join(path,'image.jpg'),frame)
-        try:
-            sound.play()
+		# extract all centroids from the results and compute the
+        # Euclidean distances between all pairs of the centroids
+		centroids = np.array([r[2] for r in results])
+        
+		#calculate the distance matrix for finding euclidean distance between each centroids
+		D = dist.cdist(centroids, centroids, metric="euclidean")
             
-        except:  # isplaying = False
-            pass
-        if(thicc<16):
-            thicc= thicc+2
-        else:
-            thicc=thicc-2
-            if(thicc<2):
-                thicc=2
-        cv2.rectangle(frame,(0,0),(width,height),(0,0,255),thicc) 
-    cv2.imshow('frame',frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-sound.play()
-cap.release()
-cv2.destroyAllWindows()
+        # loop over the upper triangular of the distance matrix
+		for i in range(0, D.shape[0]):
+            
+			for j in range(i + 1, D.shape[1]):
+                
+				# check to see if the distance between any two
+                # centroid pairs is less than the configured number of pixels
+				if D[i, j] <= ALERT_DISTANCE:
+					if(D[i,j])<= SERIOUS_DISTANCE:
+						s_lines.append([centroids[i],centroids[j]])
+						serious.add(i)
+						serious.add(j)
+					else:
+						a_lines.append([centroids[i],centroids[j]])
+						alert.add(i)
+						alert.add(j)
+
+    # loop over the results
+	for (i, (prob, bbox, centroid)) in enumerate(results):
+		
+		# extract the bounding box and centroid coordinates, then
+		# initialize the color of the annotation
+		(startX, startY, endX, endY) = bbox
+		(cX, cY) = centroid
+		color = (0, 255, 0)
+
+		# if the index pair exists within the violation set, then
+		# update the color
+		if i in alert:
+			color = (0,255,255)
+		elif i in serious:
+			color = (0,0,255)
+		
+		# draw a bounding box around the person and the
+		# centroid coordinates of the person,
+		cv2.rectangle(frame, (startX, startY), (endX, endY), color, 2)
+	
+	# draw connecting lines for violating alert people
+	for start,end in a_lines:
+		cv2.line(frame,start,end,(0,255,255),1)
+
+	# draw connecting lines for violating serious people
+	for start,end in s_lines:
+		cv2.line(frame,start,end,(0,0,255),1)
+    
+	# draw the total number of social distancing violations on the
+	# output frame
+	text = "Social Distancing Violations: "+str(len(serious)+len(alert))
+	cv2.putText(frame,text, (10, frame.shape[0] - 25),cv2.FONT_HERSHEY_SIMPLEX, 0.85, (0, 0, 255), 3)
+	cv2.imshow("Frame",frame)
+    
+	key = cv2.waitKey(1) & 0xFF
+	if key == ord("q"):    
+		break
+    
